@@ -19,7 +19,7 @@ In the near future, we will add:
 
 * State-of-the-art language understanding models.
 * State-of-the-art image classification models.
-* State-of-the-art objection detection and instance segmentation models.
+* State-of-the-art object detection and instance segmentation models.
 
 ## Table of Contents
 
@@ -105,6 +105,12 @@ pip will install all models and dependencies automatically.
 pip install tf-models-official
 ```
 
+If you are using nlp packages, please also install **tensorflow-text**:
+
+```shell
+pip install tensorflow-text
+```
+
 Please check out our [example](colab/fine_tuning_bert.ipynb)
 to learn how to use a PIP package.
 
@@ -143,6 +149,13 @@ os.environ['PYTHONPATH'] += ":/path/to/models"
 pip3 install --user -r official/requirements.txt
 ```
 
+Finally, if you are using nlp packages, please also install
+**tensorflow-text-nightly**:
+
+```shell
+pip3 install tensorflow-text-nightly
+```
+
 ## Contributions
 
 If you want to contribute, please review the [contribution guidelines](https://github.com/tensorflow/models/wiki/How-to-contribute).
@@ -153,8 +166,8 @@ To cite this repository:
 
 ```
 @software{tfmodels2020github,
-  author = {Chen Chen and Xianzhi Du and Le Hou and Jaeyoun Kim and Pengchong
-  Jin and Jing Li and Yeqing Li and Abdullah Rashwan and Hongkun Yu},
+  author = {Chen Chen and Xianzhi Du and Le Hou and Jaeyoun Kim and Jing Li and
+  Yeqing Li and Abdullah Rashwan and Fan Yang and Hongkun Yu},
   title = {TensorFlow Official Model Garden},
   url = {https://github.com/tensorflow/models/tree/master/official},
   year = {2020},

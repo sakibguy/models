@@ -1,5 +1,4 @@
-# Lint as: python3
-# Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
+
 """The central place to define flags."""
 
 from absl import flags
@@ -62,13 +61,21 @@ def define_flags():
       '--> params in params_override. See also the help message of '
       '`--config_file`.')
 
-  flags.DEFINE_multi_string(
-      'gin_file', default=None, help='List of paths to the config files.')
+  # The libraries rely on gin often make mistakes that include flags inside
+  # the library files which causes conflicts.
+  try:
+    flags.DEFINE_multi_string(
+        'gin_file', default=None, help='List of paths to the config files.')
+  except flags.DuplicateFlagError:
+    pass
 
-  flags.DEFINE_multi_string(
-      'gin_params',
-      default=None,
-      help='Newline separated list of Gin parameter bindings.')
+  try:
+    flags.DEFINE_multi_string(
+        'gin_params',
+        default=None,
+        help='Newline separated list of Gin parameter bindings.')
+  except flags.DuplicateFlagError:
+    pass
 
   flags.DEFINE_string(
       'tpu', default=None,

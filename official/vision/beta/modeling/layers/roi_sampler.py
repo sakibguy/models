@@ -1,4 +1,4 @@
-# Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,20 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
-"""ROI sampler."""
+
+"""Contains definitions of ROI sampler."""
 
 # Import libraries
 import tensorflow as tf
 
 from official.vision import keras_cv
 from official.vision.beta.modeling.layers import box_sampler
-from official.vision.beta.ops import box_ops
 
 
 @tf.keras.utils.register_keras_serializable(package='Vision')
 class ROISampler(tf.keras.layers.Layer):
-  """Sample ROIs and assign targets to the sampled ROIs."""
+  """Samples ROIs and assigns targets to the sampled ROIs."""
 
   def __init__(self,
                mix_gt_boxes=True,
@@ -37,20 +36,20 @@ class ROISampler(tf.keras.layers.Layer):
     """Initializes a ROI sampler.
 
     Args:
-      mix_gt_boxes: bool, whether to mix the groundtruth boxes with proposed
-        ROIs.
-      num_sampled_rois: int, the number of sampled ROIs per image.
-      foreground_fraction: float in [0, 1], what percentage of proposed ROIs
+      mix_gt_boxes: A `bool` of whether to mix the groundtruth boxes with
+        proposed ROIs.
+      num_sampled_rois: An `int` of the number of sampled ROIs per image.
+      foreground_fraction: A `float` in [0, 1], what percentage of proposed ROIs
         should be sampled from the foreground boxes.
-      foreground_iou_threshold: float, represent the IoU threshold for a box to
-        be considered as positive (if >= `foreground_iou_threshold`).
-      background_iou_high_threshold: float, represent the IoU threshold for a
-        box to be considered as negative (if overlap in
+      foreground_iou_threshold: A `float` that represents the IoU threshold for
+        a box to be considered as positive (if >= `foreground_iou_threshold`).
+      background_iou_high_threshold: A `float` that represents the IoU threshold
+        for a box to be considered as negative (if overlap in
         [`background_iou_low_threshold`, `background_iou_high_threshold`]).
-      background_iou_low_threshold: float, represent the IoU threshold for a box
-        to be considered as negative (if overlap in
+      background_iou_low_threshold: A `float` that represents the IoU threshold
+        for a box to be considered as negative (if overlap in
         [`background_iou_low_threshold`, `background_iou_high_threshold`])
-      **kwargs: other key word arguments passed to Layer.
+      **kwargs: Additional keyword arguments passed to Layer.
     """
     self._config_dict = {
         'mix_gt_boxes': mix_gt_boxes,
@@ -68,7 +67,7 @@ class ROISampler(tf.keras.layers.Layer):
             foreground_iou_threshold
         ],
         indicators=[-3, -1, -2, 1])
-    self._anchor_labeler = keras_cv.ops.AnchorLabeler()
+    self._target_gather = keras_cv.ops.TargetGather()
 
     self._sampler = box_sampler.BoxSampler(
         num_sampled_rois, foreground_fraction)
@@ -86,29 +85,30 @@ class ROISampler(tf.keras.layers.Layer):
          returns box_targets, class_targets, and RoIs.
 
     Args:
-      boxes: a tensor of shape of [batch_size, N, 4]. N is the number of
+      boxes: A `tf.Tensor` of shape of [batch_size, N, 4]. N is the number of
         proposals before groundtruth assignment. The last dimension is the
         box coordinates w.r.t. the scaled images in [ymin, xmin, ymax, xmax]
         format.
-      gt_boxes: a tensor of shape of [batch_size, MAX_NUM_INSTANCES, 4].
+      gt_boxes: A `tf.Tensor` of shape of [batch_size, MAX_NUM_INSTANCES, 4].
         The coordinates of gt_boxes are in the pixel coordinates of the scaled
         image. This tensor might have padding of values -1 indicating the
         invalid box coordinates.
-      gt_classes: a tensor with a shape of [batch_size, MAX_NUM_INSTANCES]. This
-        tensor might have paddings with values of -1 indicating the invalid
+      gt_classes: A `tf.Tensor` with a shape of [batch_size, MAX_NUM_INSTANCES].
+        This tensor might have paddings with values of -1 indicating the invalid
         classes.
 
     Returns:
-      sampled_rois: a tensor of shape of [batch_size, K, 4], representing the
-        coordinates of the sampled RoIs, where K is the number of the sampled
-        RoIs, i.e. K = num_samples_per_image.
-      sampled_gt_boxes: a tensor of shape of [batch_size, K, 4], storing the
-        box coordinates of the matched groundtruth boxes of the samples RoIs.
-      sampled_gt_classes: a tensor of shape of [batch_size, K], storing the
+      sampled_rois: A `tf.Tensor` of shape of [batch_size, K, 4], representing
+        the coordinates of the sampled RoIs, where K is the number of the
+        sampled RoIs, i.e. K = num_samples_per_image.
+      sampled_gt_boxes: A `tf.Tensor` of shape of [batch_size, K, 4], storing
+        the box coordinates of the matched groundtruth boxes of the samples
+        RoIs.
+      sampled_gt_classes: A `tf.Tensor` of shape of [batch_size, K], storing the
         classes of the matched groundtruth boxes of the sampled RoIs.
-      sampled_gt_indices: a tensor of shape of [batch_size, K], storing the
+      sampled_gt_indices: A `tf.Tensor` of shape of [batch_size, K], storing the
         indices of the sampled groudntruth boxes in the original `gt_boxes`
-        tensor, i.e.
+        tensor, i.e.,
         gt_boxes[sampled_gt_indices[:, i]] = sampled_gt_boxes[:, i].
     """
     if self._config_dict['mix_gt_boxes']:
@@ -130,14 +130,13 @@ class ROISampler(tf.keras.layers.Layer):
     background_mask = tf.expand_dims(
         tf.logical_or(negative_matches, invalid_matches), -1)
     gt_classes = tf.expand_dims(gt_classes, axis=-1)
-    matched_gt_classes = self._anchor_labeler(gt_classes, matched_gt_indices,
-                                              background_mask)
+    matched_gt_classes = self._target_gather(gt_classes, matched_gt_indices,
+                                             background_mask)
     matched_gt_classes = tf.where(background_mask,
                                   tf.zeros_like(matched_gt_classes),
                                   matched_gt_classes)
-    matched_gt_classes = tf.squeeze(matched_gt_classes, axis=-1)
-    matched_gt_boxes = self._anchor_labeler(gt_boxes, matched_gt_indices,
-                                            tf.tile(background_mask, [1, 1, 4]))
+    matched_gt_boxes = self._target_gather(gt_boxes, matched_gt_indices,
+                                           tf.tile(background_mask, [1, 1, 4]))
     matched_gt_boxes = tf.where(background_mask,
                                 tf.zeros_like(matched_gt_boxes),
                                 matched_gt_boxes)
@@ -148,13 +147,12 @@ class ROISampler(tf.keras.layers.Layer):
     sampled_indices = self._sampler(
         positive_matches, negative_matches, ignored_matches)
 
-    sampled_rois, sampled_gt_boxes, sampled_gt_classes, sampled_gt_indices = (
-        box_ops.gather_instances(
-            sampled_indices,
-            boxes,
-            matched_gt_boxes,
-            matched_gt_classes,
-            matched_gt_indices))
+    sampled_rois = self._target_gather(boxes, sampled_indices)
+    sampled_gt_boxes = self._target_gather(matched_gt_boxes, sampled_indices)
+    sampled_gt_classes = tf.squeeze(self._target_gather(
+        matched_gt_classes, sampled_indices), axis=-1)
+    sampled_gt_indices = tf.squeeze(self._target_gather(
+        tf.expand_dims(matched_gt_indices, -1), sampled_indices), axis=-1)
     return (sampled_rois, sampled_gt_boxes, sampled_gt_classes,
             sampled_gt_indices)
 

@@ -1,4 +1,4 @@
-# Copyright 2019 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
+
 """Tests for transformer-based bert encoder network."""
 
 # Import libraries
@@ -225,13 +225,15 @@ class BertEncoderTest(keras_parameterized.TestCase):
         return_all_encoder_outputs=False,
         output_range=-1,
         embedding_width=16,
-        dict_outputs=True)
+        dict_outputs=True,
+        embedding_layer=None)
     network = bert_encoder.BertEncoder(**kwargs)
     expected_config = dict(kwargs)
     expected_config["activation"] = tf.keras.activations.serialize(
         tf.keras.activations.get(expected_config["activation"]))
     expected_config["initializer"] = tf.keras.initializers.serialize(
         tf.keras.initializers.get(expected_config["initializer"]))
+
     self.assertEqual(network.get_config(), expected_config)
     # Create another network object from the first object's config.
     new_network = bert_encoder.BertEncoder.from_config(network.get_config())

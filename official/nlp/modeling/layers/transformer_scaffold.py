@@ -1,4 +1,4 @@
-# Copyright 2019 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,10 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
+
 """Keras-based transformer scaffold layer."""
 # pylint: disable=g-classes-have-attributes
 
+from absl import logging
 import gin
 import tensorflow as tf
 
@@ -34,7 +35,7 @@ class TransformerScaffold(tf.keras.layers.Layer):
   instantiate the class with the config, or pass a class instance to
   `attention_cls`/`feedforward_cls`.
 
-  Arguments:
+  Args:
     num_attention_heads: Number of attention heads.
     intermediate_size: Size of the intermediate layer.
     intermediate_activation: Activation for the intermediate layer.
@@ -111,8 +112,9 @@ class TransformerScaffold(tf.keras.layers.Layer):
     self._bias_constraint = tf.keras.constraints.get(bias_constraint)
 
   def build(self, input_shape):
-    input_tensor = input_shape[0] if len(input_shape) == 2 else input_shape
-    input_tensor_shape = tf.TensorShape(input_tensor)
+    input_tensor_shape = input_shape[0] if (
+        len(input_shape) == 2) else input_shape
+    input_tensor_shape = tf.TensorShape(input_tensor_shape)
     if len(input_tensor_shape.as_list()) != 3:
       raise ValueError(
           "TransformerScaffold expects a three-dimensional input of "
@@ -169,6 +171,8 @@ class TransformerScaffold(tf.keras.layers.Layer):
     else:
       self._feedforward_block = None
 
+    # self._dropout_rate controls dropout rates at two places:
+    # after attention, and after FFN.
     self._attention_dropout = tf.keras.layers.Dropout(rate=self._dropout_rate)
     # Use float32 in layernorm for numeric stability.
     # It is probably safe in mixed_float16, but we haven't validated this yet.
@@ -207,6 +211,7 @@ class TransformerScaffold(tf.keras.layers.Layer):
         name="output_layer_norm", axis=-1, epsilon=1e-12, dtype=tf.float32)
 
     super(TransformerScaffold, self).build(input_shape)
+    logging.info("%s configs: %s", self.__class__.__name__, self.get_config())
 
   def get_config(self):
     config = {

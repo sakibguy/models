@@ -1,4 +1,4 @@
-# Copyright 2019 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
+
 """Tests for transformer-based bert encoder network."""
 
 from absl.testing import parameterized
@@ -204,7 +204,8 @@ class BertEncoderTest(keras_parameterized.TestCase):
         attention_dropout=0.22,
         initializer="glorot_uniform",
         output_range=-1,
-        embedding_width=16)
+        embedding_width=16,
+        embedding_layer=None)
     network = bert_encoder.BertEncoder(**kwargs)
     expected_config = dict(kwargs)
     expected_config["inner_activation"] = tf.keras.activations.serialize(

@@ -1,4 +1,4 @@
-# Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
+
 """Forward pass test for Transformer model refactoring."""
 
 import numpy as np
@@ -70,7 +70,8 @@ def _create_model(params, is_train):
     inputs = tf.keras.layers.Input((None,), dtype="int64", name="inputs")
     targets = tf.keras.layers.Input((None,), dtype="int64", name="targets")
     internal_model = models.Seq2SeqTransformer(**model_kwargs)
-    logits = internal_model([inputs, targets], training=is_train)
+    logits = internal_model(
+        dict(inputs=inputs, targets=targets), training=is_train)
     vocab_size = params["vocab_size"]
     label_smoothing = params["label_smoothing"]
     if params["enable_metrics_in_training"]:
@@ -90,7 +91,7 @@ def _create_model(params, is_train):
                                  dtype="int64",
                                  name="inputs")
   internal_model = models.Seq2SeqTransformer(**model_kwargs)
-  ret = internal_model([inputs], training=is_train)
+  ret = internal_model(dict(inputs=inputs), training=is_train)
   outputs, scores = ret["outputs"], ret["scores"]
   return tf.keras.Model(inputs, [outputs, scores])
 

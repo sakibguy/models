@@ -1,10 +1,11 @@
 # Running TF2 Detection API Models on mobile
 
-[![TensorFlow 2.3](https://img.shields.io/badge/TensorFlow-2.3-FF6F00?logo=tensorflow)](https://github.com/tensorflow/tensorflow/releases/tag/v2.3.0)
+[![TensorFlow 2.4](https://img.shields.io/badge/TensorFlow-2.4-FF6F00?logo=tensorflow)](https://github.com/tensorflow/tensorflow/releases/tag/v2.4.0)
 [![Python 3.6](https://img.shields.io/badge/Python-3.6-3776AB)](https://www.python.org/downloads/release/python-360/)
 
-**NOTE:** This support was added *after* TF2.3, so please use the latest nightly
-for the TensorFlow Lite Converter for this to work.
+**NOTE:** This document talks about the *SSD* models in the detection zoo. For
+details on our (experimental) CenterNet support, see
+[this notebook](../colab_tutorials/centernet_on_device.ipynb).
 
 [TensorFlow Lite](https://www.tensorflow.org/mobile/tflite/)(TFLite) is
 TensorFlow’s lightweight solution for mobile and embedded devices. It enables
@@ -79,7 +80,7 @@ API*. Be sure to use a
 [representative dataset](https://www.tensorflow.org/lite/performance/post_training_quantization#full_integer_quantization)
 and set the following options on the converter:
 
-```
+```python
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
 converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8,
                                        tf.lite.OpsSet.TFLITE_BUILTINS]
@@ -115,8 +116,11 @@ directory.
 We will now edit the gradle build file to use these assets. First, open the
 `build.gradle` file
 `$TF_EXAMPLES/lite/examples/object_detection/android/app/build.gradle`. Comment
-out the model download script to avoid your assets being overwritten: `// apply
-from:'download_model.gradle'` ```
+out the model download script to avoid your assets being overwritten:
+
+```shell
+// apply from:'download_model.gradle'
+```
 
 If your model is named `detect.tflite`, and your labels file `labelmap.txt`, the
 example will use them automatically as long as they've been properly copied into
@@ -130,7 +134,7 @@ your model is floating point, the flag TF_OD_API_IS_QUANTIZED is set to false.
 This new section of DetectorActivity.java should now look as follows for a
 quantized model:
 
-```shell
+```java
   private static final boolean TF_OD_API_IS_QUANTIZED = true;
   private static final String TF_OD_API_MODEL_FILE = "detect.tflite";
   private static final String TF_OD_API_LABELS_FILE = "labels_list.txt";

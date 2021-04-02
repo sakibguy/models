@@ -1,5 +1,4 @@
-# Lint as: python3
-# Copyright 2018 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
+
+# Lint as: python3
 """Runs an Image Classification model."""
 
 import os
@@ -228,7 +228,7 @@ def initialize(params: base_configs.ExperimentConfig,
   """Initializes backend related initializations."""
   keras_utils.set_session_config(enable_xla=params.runtime.enable_xla)
   performance.set_mixed_precision_policy(dataset_builder.dtype,
-                                         get_loss_scale(params))
+                                         use_experimental_api=False)
   if tf.config.list_physical_devices('GPU'):
     data_format = 'channels_first'
   else:
@@ -338,6 +338,11 @@ def train_and_eval(
         base_learning_rate=learning_rate,
         params=params.model.optimizer.as_dict(),
         model=model)
+    optimizer = performance.configure_optimizer(
+        optimizer,
+        use_float16=train_builder.dtype == 'float16',
+        loss_scale=get_loss_scale(params),
+        use_experimental_api=True)
 
     metrics_map = _get_metrics(one_hot)
     metrics = [metrics_map[metric] for metric in params.train.metrics]
@@ -352,7 +357,7 @@ def train_and_eval(
         optimizer=optimizer,
         loss=loss_obj,
         metrics=metrics,
-        experimental_steps_per_execution=steps_per_loop)
+        steps_per_execution=steps_per_loop)
 
     initial_epoch = 0
     if params.train.resume_checkpoint:

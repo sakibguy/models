@@ -1,5 +1,4 @@
-# Lint as: python3
-# Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
+
+# Lint as: python3
 """Tests for RetinaNet models."""
 
 # Import libraries
@@ -92,14 +92,16 @@ class RetinaNetTest(parameterized.TestCase, tf.test.TestCase):
   @combinations.generate(
       combinations.combine(
           strategy=[
-              strategy_combinations.tpu_strategy,
+              strategy_combinations.cloud_tpu_strategy,
               strategy_combinations.one_device_strategy_gpu,
           ],
-          image_size=[(128, 128),],
+          image_size=[
+              (128, 128),
+          ],
           training=[True, False],
-      )
-  )
-  def test_forward(self, strategy, image_size, training):
+          has_att_heads=[True, False],
+      ))
+  def test_forward(self, strategy, image_size, training, has_att_heads):
     """Test for creation of a R50-FPN RetinaNet."""
     tf.keras.backend.set_image_data_format('channels_last')
     num_classes = 3
@@ -130,10 +132,16 @@ class RetinaNetTest(parameterized.TestCase, tf.test.TestCase):
           input_specs=backbone.output_specs,
           min_level=min_level,
           max_level=max_level)
+
+      if has_att_heads:
+        attribute_heads = {'depth': ('regression', 1)}
+      else:
+        attribute_heads = None
       head = dense_prediction_heads.RetinaNetHead(
           min_level=min_level,
           max_level=max_level,
           num_classes=num_classes,
+          attribute_heads=attribute_heads,
           num_anchors_per_location=num_anchors_per_location)
       generator = detection_generator.MultilevelDetectionGenerator(
           max_num_detections=10)
@@ -167,6 +175,13 @@ class RetinaNetTest(parameterized.TestCase, tf.test.TestCase):
             image_size[1] // 2**level,
             4 * num_anchors_per_location
         ], box_outputs[str(level)].numpy().shape)
+        if has_att_heads:
+          att_outputs = model_outputs['att_outputs']
+          for att in att_outputs.values():
+            self.assertAllEqual([
+                2, image_size[0] // 2**level, image_size[1] // 2**level,
+                1 * num_anchors_per_location
+            ], att[str(level)].numpy().shape)
     else:
       self.assertIn('detection_boxes', model_outputs)
       self.assertIn('detection_scores', model_outputs)
@@ -180,6 +195,11 @@ class RetinaNetTest(parameterized.TestCase, tf.test.TestCase):
           [2, 10], model_outputs['detection_classes'].numpy().shape)
       self.assertAllEqual(
           [2,], model_outputs['num_detections'].numpy().shape)
+      if has_att_heads:
+        self.assertIn('detection_attributes', model_outputs)
+        self.assertAllEqual(
+            [2, 10, 1],
+            model_outputs['detection_attributes']['depth'].numpy().shape)
 
   def test_serialize_deserialize(self):
     """Validate the network can be serialized and deserialized."""
@@ -220,4 +240,3 @@ class RetinaNetTest(parameterized.TestCase, tf.test.TestCase):
 
 if __name__ == '__main__':
   tf.test.main()
-
