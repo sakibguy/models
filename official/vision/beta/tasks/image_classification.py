@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Image classification task definition."""
+from typing import Any, Optional, List, Tuple
 from absl import logging
 import tensorflow as tf
 
@@ -51,7 +51,7 @@ class ImageClassificationTask(base_task.Task):
     return model
 
   def initialize(self, model: tf.keras.Model):
-    """Loading pretrained checkpoint."""
+    """Loads pretrained checkpoint."""
     if not self.task_config.init_checkpoint:
       return
 
@@ -75,11 +75,18 @@ class ImageClassificationTask(base_task.Task):
     logging.info('Finished loading pretrained checkpoint from %s',
                  ckpt_dir_or_file)
 
-  def build_inputs(self, params, input_context=None):
+  def build_inputs(
+      self,
+      params: exp_cfg.DataConfig,
+      input_context: Optional[tf.distribute.InputContext] = None
+  ) -> tf.data.Dataset:
     """Builds classification input."""
 
     num_classes = self.task_config.model.num_classes
     input_size = self.task_config.model.input_size
+    image_field_key = self.task_config.train_data.image_field_key
+    label_field_key = self.task_config.train_data.label_field_key
+    is_multilabel = self.task_config.train_data.is_multilabel
 
     if params.tfds_name:
       if params.tfds_name in tfds_classification_decoders.TFDS_ID_TO_DECODER_MAP:
@@ -88,13 +95,18 @@ class ImageClassificationTask(base_task.Task):
       else:
         raise ValueError('TFDS {} is not supported'.format(params.tfds_name))
     else:
-      decoder = classification_input.Decoder()
+      decoder = classification_input.Decoder(
+          image_field_key=image_field_key, label_field_key=label_field_key,
+          is_multilabel=is_multilabel)
 
     parser = classification_input.Parser(
         output_size=input_size[:2],
         num_classes=num_classes,
-        aug_policy=params.aug_policy,
-        randaug_magnitude=params.randaug_magnitude,
+        image_field_key=image_field_key,
+        label_field_key=label_field_key,
+        aug_rand_hflip=params.aug_rand_hflip,
+        aug_type=params.aug_type,
+        is_multilabel=is_multilabel,
         dtype=params.dtype)
 
     reader = input_reader_factory.input_reader_generator(
@@ -107,27 +119,38 @@ class ImageClassificationTask(base_task.Task):
 
     return dataset
 
-  def build_losses(self, labels, model_outputs, aux_losses=None):
-    """Sparse categorical cross entropy loss.
+  def build_losses(self,
+                   labels: tf.Tensor,
+                   model_outputs: tf.Tensor,
+                   aux_losses: Optional[Any] = None) -> tf.Tensor:
+    """Builds sparse categorical cross entropy loss.
 
     Args:
-      labels: labels.
+      labels: Input groundtruth labels.
       model_outputs: Output logits of the classifier.
-      aux_losses: auxiliarly loss tensors, i.e. `losses` in keras.Model.
+      aux_losses: The auxiliarly loss tensors, i.e. `losses` in tf.keras.Model.
 
     Returns:
       The total loss tensor.
     """
     losses_config = self.task_config.losses
-    if losses_config.one_hot:
-      total_loss = tf.keras.losses.categorical_crossentropy(
-          labels,
-          model_outputs,
-          from_logits=True,
-          label_smoothing=losses_config.label_smoothing)
+    is_multilabel = self.task_config.train_data.is_multilabel
+
+    if not is_multilabel:
+      if losses_config.one_hot:
+        total_loss = tf.keras.losses.categorical_crossentropy(
+            labels,
+            model_outputs,
+            from_logits=True,
+            label_smoothing=losses_config.label_smoothing)
+      else:
+        total_loss = tf.keras.losses.sparse_categorical_crossentropy(
+            labels, model_outputs, from_logits=True)
     else:
-      total_loss = tf.keras.losses.sparse_categorical_crossentropy(
-          labels, model_outputs, from_logits=True)
+      # Multi-label weighted binary cross entropy loss.
+      total_loss = tf.nn.sigmoid_cross_entropy_with_logits(
+          labels=labels, logits=model_outputs)
+      total_loss = tf.reduce_sum(total_loss, axis=-1)
 
     total_loss = tf_utils.safe_mean(total_loss)
     if aux_losses:
@@ -135,35 +158,62 @@ class ImageClassificationTask(base_task.Task):
 
     return total_loss
 
-  def build_metrics(self, training=True):
+  def build_metrics(self,
+                    training: bool = True) -> List[tf.keras.metrics.Metric]:
     """Gets streaming metrics for training/validation."""
-    k = self.task_config.evaluation.top_k
-    if self.task_config.losses.one_hot:
-      metrics = [
-          tf.keras.metrics.CategoricalAccuracy(name='accuracy'),
-          tf.keras.metrics.TopKCategoricalAccuracy(
-              k=k, name='top_{}_accuracy'.format(k))]
+    is_multilabel = self.task_config.train_data.is_multilabel
+    if not is_multilabel:
+      k = self.task_config.evaluation.top_k
+      if self.task_config.losses.one_hot:
+        metrics = [
+            tf.keras.metrics.CategoricalAccuracy(name='accuracy'),
+            tf.keras.metrics.TopKCategoricalAccuracy(
+                k=k, name='top_{}_accuracy'.format(k))]
+      else:
+        metrics = [
+            tf.keras.metrics.SparseCategoricalAccuracy(name='accuracy'),
+            tf.keras.metrics.SparseTopKCategoricalAccuracy(
+                k=k, name='top_{}_accuracy'.format(k))]
     else:
-      metrics = [
-          tf.keras.metrics.SparseCategoricalAccuracy(name='accuracy'),
-          tf.keras.metrics.SparseTopKCategoricalAccuracy(
-              k=k, name='top_{}_accuracy'.format(k))]
+      metrics = []
+      # These metrics destablize the training if included in training. The jobs
+      # fail due to OOM.
+      # TODO(arashwan): Investigate adding following metric to train.
+      if not training:
+        metrics = [
+            tf.keras.metrics.AUC(
+                name='globalPR-AUC',
+                curve='PR',
+                multi_label=False,
+                from_logits=True),
+            tf.keras.metrics.AUC(
+                name='meanlPR-AUC',
+                curve='PR',
+                multi_label=True,
+                num_labels=self.task_config.model.num_classes,
+                from_logits=True),
+        ]
     return metrics
 
-  def train_step(self, inputs, model, optimizer, metrics=None):
+  def train_step(self,
+                 inputs: Tuple[Any, Any],
+                 model: tf.keras.Model,
+                 optimizer: tf.keras.optimizers.Optimizer,
+                 metrics: Optional[List[Any]] = None):
     """Does forward and backward.
 
     Args:
-      inputs: a dictionary of input tensors.
-      model: the model, forward pass definition.
-      optimizer: the optimizer for this training step.
-      metrics: a nested structure of metrics objects.
+      inputs: A tuple of of input tensors of (features, labels).
+      model: A tf.keras.Model instance.
+      optimizer: The optimizer for this training step.
+      metrics: A nested structure of metrics objects.
 
     Returns:
       A dictionary of logs.
     """
     features, labels = inputs
-    if self.task_config.losses.one_hot:
+    is_multilabel = self.task_config.train_data.is_multilabel
+    if self.task_config.losses.one_hot and not is_multilabel:
       labels = tf.one_hot(labels, self.task_config.model.num_classes)
 
     num_replicas = tf.distribute.get_strategy().num_replicas_in_sync
@@ -204,19 +254,23 @@ class ImageClassificationTask(base_task.Task):
       logs.update({m.name: m.result() for m in model.metrics})
     return logs
 
-  def validation_step(self, inputs, model, metrics=None):
-    """Validatation step.
+  def validation_step(self,
+                      inputs: Tuple[Any, Any],
+                      model: tf.keras.Model,
+                      metrics: Optional[List[Any]] = None):
+    """Runs validatation step.
 
     Args:
-      inputs: a dictionary of input tensors.
-      model: the keras.Model.
-      metrics: a nested structure of metrics objects.
+      inputs: A tuple of of input tensors of (features, labels).
+      model: A tf.keras.Model instance.
+      metrics: A nested structure of metrics objects.
 
     Returns:
       A dictionary of logs.
     """
     features, labels = inputs
-    if self.task_config.losses.one_hot:
+    is_multilabel = self.task_config.train_data.is_multilabel
+    if self.task_config.losses.one_hot and not is_multilabel:
       labels = tf.one_hot(labels, self.task_config.model.num_classes)
 
     outputs = self.inference_step(features, model)
@@ -232,6 +286,6 @@ class ImageClassificationTask(base_task.Task):
       logs.update({m.name: m.result() for m in model.metrics})
     return logs
 
-  def inference_step(self, inputs, model):
+  def inference_step(self, inputs: tf.Tensor, model: tf.keras.Model):
     """Performs the forward step."""
     return model(inputs, training=False)
