@@ -12,11 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""All necessary imports for registration."""
+"""TensorFlow Model Garden Vision trainer.
 
-# pylint: disable=unused-import
-from official.common import registry_imports
-from official.vision.beta.projects.volumetric_models.configs import semantic_segmentation_3d as semantic_segmentation_3d_cfg
-from official.vision.beta.projects.volumetric_models.modeling import backbones
-from official.vision.beta.projects.volumetric_models.modeling import decoders
-from official.vision.beta.projects.volumetric_models.tasks import semantic_segmentation_3d
+All custom registry are imported from registry_imports. Here we use default
+trainer so we directly call train.main. If you need to customize the trainer,
+branch from `official/vision/beta/train.py` and make changes.
+"""
+from absl import app
+
+from official.common import flags as tfm_flags
+from official.vision.beta import train
+from official.vision.beta.projects.example import registry_imports  # pylint: disable=unused-import
+
+
+if __name__ == '__main__':
+  tfm_flags.define_flags()
+  app.run(train.main)
