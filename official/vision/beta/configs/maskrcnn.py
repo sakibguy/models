@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Mask R-CNN configuration definition."""
+"""R-CNN(-RS) configuration definition."""
 
 import dataclasses
 import os
@@ -132,6 +132,7 @@ class DetectionGenerator(hyperparams.Config):
   nms_iou_threshold: float = 0.5
   max_num_detections: int = 100
   use_batched_nms: bool = False
+  use_cpu_nms: bool = False
 
 
 @dataclasses.dataclass
@@ -431,7 +432,7 @@ def maskrcnn_spinenet_coco() -> cfg.ExperimentConfig:
 
 @exp_factory.register_config_factory('cascadercnn_spinenet_coco')
 def cascadercnn_spinenet_coco() -> cfg.ExperimentConfig:
-  """COCO object detection with Cascade R-CNN with SpineNet backbone."""
+  """COCO object detection with Cascade RCNN-RS with SpineNet backbone."""
   steps_per_epoch = 463
   coco_val_samples = 5000
   train_batch_size = 256
