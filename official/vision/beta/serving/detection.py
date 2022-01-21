@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 # Lint as: python3
 """Detection input and model functions for serving/inference."""
 
+from typing import Mapping, Text
 import tensorflow as tf
 
 from official.vision.beta import configs
@@ -51,6 +52,18 @@ class DetectionModule(export_base.ExportModule):
 
     return model
 
+  def _build_anchor_boxes(self):
+    """Builds and returns anchor boxes."""
+    model_params = self.params.task.model
+    input_anchor = anchor.build_anchor_generator(
+        min_level=model_params.min_level,
+        max_level=model_params.max_level,
+        num_scales=model_params.anchor.num_scales,
+        aspect_ratios=model_params.anchor.aspect_ratios,
+        anchor_size=model_params.anchor.anchor_size)
+    return input_anchor(
+        image_size=(self._input_image_size[0], self._input_image_size[1]))
+
   def _build_inputs(self, image):
     """Builds detection model inputs for serving."""
     model_params = self.params.task.model
@@ -66,25 +79,21 @@ class DetectionModule(export_base.ExportModule):
             self._input_image_size, 2**model_params.max_level),
         aug_scale_min=1.0,
         aug_scale_max=1.0)
-
-    input_anchor = anchor.build_anchor_generator(
-        min_level=model_params.min_level,
-        max_level=model_params.max_level,
-        num_scales=model_params.anchor.num_scales,
-        aspect_ratios=model_params.anchor.aspect_ratios,
-        anchor_size=model_params.anchor.anchor_size)
-    anchor_boxes = input_anchor(image_size=(self._input_image_size[0],
-                                            self._input_image_size[1]))
+    anchor_boxes = self._build_anchor_boxes()
 
     return image, anchor_boxes, image_info
 
-  def serve(self, images: tf.Tensor):
-    """Cast image to float and run inference.
+  def preprocess(self, images: tf.Tensor) -> (
+      tf.Tensor, Mapping[Text, tf.Tensor], tf.Tensor):
+    """Preprocess inputs to be suitable for the model.
 
     Args:
-      images: uint8 Tensor of shape [batch_size, None, None, 3]
+      images: The images tensor.
     Returns:
-      Tensor holding detection output logits.
+      images: The images tensor cast to float.
+      anchor_boxes: Dict mapping anchor levels to anchor boxes.
+      image_info: Tensor containing the details of the image resizing.
+
     """
     model_params = self.params.task.model
     with tf.device('cpu:0'):
@@ -117,6 +126,33 @@ class DetectionModule(export_base.ExportModule):
                                    image_info_spec),
               parallel_iterations=32))
 
+      return images, anchor_boxes, image_info
+
+  def serve(self, images: tf.Tensor):
+    """Cast image to float and run inference.
+
+    Args:
+      images: uint8 Tensor of shape [batch_size, None, None, 3]
+    Returns:
+      Tensor holding detection output logits.
+    """
+
+    # Skip image preprocessing when input_type is tflite so it is compatible
+    # with TFLite quantization.
+    if self._input_type != 'tflite':
+      images, anchor_boxes, image_info = self.preprocess(images)
+    else:
+      with tf.device('cpu:0'):
+        anchor_boxes = self._build_anchor_boxes()
+        # image_info is a 3D tensor of shape [batch_size, 4, 2]. It is in the
+        # format of [[original_height, original_width],
+        # [desired_height, desired_width], [y_scale, x_scale],
+        # [y_offset, x_offset]]. When input_type is tflite, input image is
+        # supposed to be preprocessed already.
+        image_info = tf.convert_to_tensor([[
+            self._input_image_size, self._input_image_size, [1.0, 1.0], [0, 0]
+        ]],
+                                          dtype=tf.float32)
     input_image_shape = image_info[:, 1, :]
 
     # To overcome keras.Model extra limitation to save a model with layers that

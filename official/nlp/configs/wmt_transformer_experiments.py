@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,6 +43,7 @@ def wmt_transformer_large() -> cfg.ExperimentConfig:
   encdecoder = translation.EncDecoder(
       num_attention_heads=16, intermediate_size=hidden_size * 4)
   config = cfg.ExperimentConfig(
+      runtime=cfg.RuntimeConfig(enable_xla=True),
       task=translation.TranslationConfig(
           model=translation.ModelConfig(
               encoder=encdecoder,

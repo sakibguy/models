@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,7 +31,6 @@ def resize_as(source, size):
   return tf.transpose(source, (0, 3, 1, 2))
 
 
-@tf.keras.utils.register_keras_serializable(package='Vision')
 class DeepMaskRCNNModel(maskrcnn_model.MaskRCNNModel):
   """The Mask R-CNN model."""
 
@@ -131,7 +130,7 @@ class DeepMaskRCNNModel(maskrcnn_model.MaskRCNNModel):
 
     model_mask_outputs = self._call_mask_outputs(
         model_box_outputs=model_outputs,
-        features=intermediate_outputs['features'],
+        features=model_outputs['decoder_features'],
         current_rois=intermediate_outputs['current_rois'],
         matched_gt_indices=intermediate_outputs['matched_gt_indices'],
         matched_gt_boxes=intermediate_outputs['matched_gt_boxes'],
@@ -142,6 +141,20 @@ class DeepMaskRCNNModel(maskrcnn_model.MaskRCNNModel):
         training=training)
     model_outputs.update(model_mask_outputs)
     return model_outputs
+
+  def call_images_and_boxes(self, images, boxes):
+    """Predict masks given an image and bounding boxes."""
+
+    _, decoder_features = self._get_backbone_and_decoder_features(images)
+    boxes_shape = tf.shape(boxes)
+    batch_size, num_boxes = boxes_shape[0], boxes_shape[1]
+    classes = tf.zeros((batch_size, num_boxes), dtype=tf.int32)
+
+    _, mask_probs = self._features_to_mask_outputs(
+        decoder_features, boxes, classes)
+    return {
+        'detection_masks': mask_probs
+    }
 
   def _call_mask_outputs(
       self,
@@ -187,20 +200,22 @@ class DeepMaskRCNNModel(maskrcnn_model.MaskRCNNModel):
     # Mask RoI align.
     if training and self._config_dict['use_gt_boxes_for_masks']:
       logging.info('Using GT mask roi features.')
-      mask_roi_features = self.mask_roi_aligner(features, gt_boxes)
-      raw_masks = self.mask_head([mask_roi_features, gt_classes])
+      roi_aligner_boxes = gt_boxes
+      mask_head_classes = gt_classes
 
     else:
-      mask_roi_features = self.mask_roi_aligner(features, rois)
-      raw_masks = self.mask_head([mask_roi_features, roi_classes])
+      roi_aligner_boxes = rois
+      mask_head_classes = roi_classes
 
-    # Mask head.
+    mask_logits, mask_probs = self._features_to_mask_outputs(
+        features, roi_aligner_boxes, mask_head_classes)
+
     if training:
       model_outputs.update({
-          'mask_outputs': raw_masks,
+          'mask_outputs': mask_logits,
       })
     else:
       model_outputs.update({
-          'detection_masks': tf.math.sigmoid(raw_masks),
+          'detection_masks': mask_probs,
       })
     return model_outputs

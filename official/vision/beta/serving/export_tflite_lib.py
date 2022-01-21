@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import tensorflow as tf
 
 from official.core import config_definitions as cfg
 from official.vision.beta import configs
-from official.vision.beta.tasks import image_classification as img_cls_task
+from official.vision.beta import tasks
 
 
 def create_representative_dataset(
@@ -39,7 +39,15 @@ def create_representative_dataset(
   """
   if isinstance(params.task,
                 configs.image_classification.ImageClassificationTask):
-    task = img_cls_task.ImageClassificationTask(params.task)
+
+    task = tasks.image_classification.ImageClassificationTask(params.task)
+  elif isinstance(params.task, configs.retinanet.RetinaNetTask):
+    task = tasks.retinanet.RetinaNetTask(params.task)
+  elif isinstance(params.task, configs.maskrcnn.MaskRCNNTask):
+    task = tasks.maskrcnn.MaskRCNNTask(params.task)
+  elif isinstance(params.task,
+                  configs.semantic_segmentation.SemanticSegmentationTask):
+    task = tasks.semantic_segmentation.SemanticSegmentationTask(params.task)
   else:
     raise ValueError('Task {} not supported.'.format(type(params.task)))
   # Ensure batch size is 1 for TFLite model.

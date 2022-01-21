@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -100,8 +100,13 @@ def image_info_to_feature_dict(height, width, filename, image_id,
   }
 
 
-def encode_binary_mask_as_png(binary_mask):
-  pil_image = Image.fromarray(binary_mask)
+def read_image(image_path):
+  pil_image = Image.open(image_path)
+  return np.asarray(pil_image)
+
+
+def encode_mask_as_png(mask):
+  pil_image = Image.fromarray(mask)
   output_io = io.BytesIO()
   pil_image.save(output_io, format='PNG')
   return output_io.getvalue()

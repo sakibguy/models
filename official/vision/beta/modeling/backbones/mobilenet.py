@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,10 +14,10 @@
 
 """Contains definitions of MobileNet Networks."""
 
+import dataclasses
 from typing import Optional, Dict, Any, Tuple
 
 # Import libraries
-import dataclasses
 import tensorflow as tf
 from official.modeling import hyperparams
 from official.modeling import tf_utils
@@ -41,6 +41,7 @@ class Conv2DBNBlock(tf.keras.layers.Layer):
       kernel_size: int = 3,
       strides: int = 1,
       use_bias: bool = False,
+      use_explicit_padding: bool = False,
       activation: str = 'relu6',
       kernel_initializer: str = 'VarianceScaling',
       kernel_regularizer: Optional[tf.keras.regularizers.Regularizer] = None,
@@ -60,6 +61,9 @@ class Conv2DBNBlock(tf.keras.layers.Layer):
       strides: An `int` of block stride. If greater than 1, this block will
         ultimately downsample the input.
       use_bias: If True, use bias in the convolution layer.
+      use_explicit_padding: Use 'VALID' padding for convolutions, but prepad
+        inputs so that the output dimensions are the same as if 'SAME' padding
+        were used.
       activation: A `str` name of the activation function.
       kernel_initializer: A `str` for kernel initializer of convolutional
         layers.
@@ -79,6 +83,7 @@ class Conv2DBNBlock(tf.keras.layers.Layer):
     self._strides = strides
     self._activation = activation
     self._use_bias = use_bias
+    self._use_explicit_padding = use_explicit_padding
     self._kernel_initializer = kernel_initializer
     self._kernel_regularizer = kernel_regularizer
     self._bias_regularizer = bias_regularizer
@@ -87,6 +92,10 @@ class Conv2DBNBlock(tf.keras.layers.Layer):
     self._norm_momentum = norm_momentum
     self._norm_epsilon = norm_epsilon
 
+    if use_explicit_padding and kernel_size > 1:
+      self._padding = 'valid'
+    else:
+      self._padding = 'same'
     if use_sync_bn:
       self._norm = tf.keras.layers.experimental.SyncBatchNormalization
     else:
@@ -102,6 +111,7 @@ class Conv2DBNBlock(tf.keras.layers.Layer):
         'strides': self._strides,
         'kernel_size': self._kernel_size,
         'use_bias': self._use_bias,
+        'use_explicit_padding': self._use_explicit_padding,
         'kernel_initializer': self._kernel_initializer,
         'kernel_regularizer': self._kernel_regularizer,
         'bias_regularizer': self._bias_regularizer,
@@ -115,11 +125,14 @@ class Conv2DBNBlock(tf.keras.layers.Layer):
     return dict(list(base_config.items()) + list(config.items()))
 
   def build(self, input_shape):
+    if self._use_explicit_padding and self._kernel_size > 1:
+      padding_size = nn_layers.get_padding_for_kernel_size(self._kernel_size)
+      self._pad = tf.keras.layers.ZeroPadding2D(padding_size)
     self._conv0 = tf.keras.layers.Conv2D(
         filters=self._filters,
         kernel_size=self._kernel_size,
         strides=self._strides,
-        padding='same',
+        padding=self._padding,
         use_bias=self._use_bias,
         kernel_initializer=self._kernel_initializer,
         kernel_regularizer=self._kernel_regularizer,
@@ -135,6 +148,8 @@ class Conv2DBNBlock(tf.keras.layers.Layer):
     super(Conv2DBNBlock, self).build(input_shape)
 
   def call(self, inputs, training=None):
+    if self._use_explicit_padding and self._kernel_size > 1:
+      inputs = self._pad(inputs)
     x = self._conv0(inputs)
     if self._use_normalization:
       x = self._norm0(x)
@@ -402,6 +417,113 @@ MNMultiAVG_BLOCK_SPECS = {
     ]
 }
 
+# Similar to MobileNetMultiAVG and used for segmentation task.
+# Reduced the filters by a factor of 2 in the last block.
+MNMultiAVG_SEG_BLOCK_SPECS = {
+    'spec_name':
+        'MobileNetMultiAVGSeg',
+    'block_spec_schema': [
+        'block_fn', 'kernel_size', 'strides', 'filters', 'activation',
+        'expand_ratio', 'use_normalization', 'use_bias', 'is_output'
+    ],
+    'block_specs': [
+        ('convbn', 3, 2, 32, 'relu', None, True, False, False),
+        ('invertedbottleneck', 3, 2, 32, 'relu', 3., True, False, False),
+        ('invertedbottleneck', 3, 1, 32, 'relu', 2., True, False, True),
+        ('invertedbottleneck', 5, 2, 64, 'relu', 5., True, False, False),
+        ('invertedbottleneck', 3, 1, 64, 'relu', 3., True, False, False),
+        ('invertedbottleneck', 3, 1, 64, 'relu', 2., True, False, False),
+        ('invertedbottleneck', 3, 1, 64, 'relu', 3., True, False, True),
+        ('invertedbottleneck', 5, 2, 128, 'relu', 6., True, False, False),
+        ('invertedbottleneck', 3, 1, 128, 'relu', 3., True, False, False),
+        ('invertedbottleneck', 3, 1, 128, 'relu', 3., True, False, False),
+        ('invertedbottleneck', 3, 1, 128, 'relu', 3., True, False, False),
+        ('invertedbottleneck', 3, 1, 160, 'relu', 6., True, False, False),
+        ('invertedbottleneck', 3, 1, 160, 'relu', 4., True, False, True),
+        ('invertedbottleneck', 3, 2, 192, 'relu', 6., True, False, False),
+        ('invertedbottleneck', 5, 1, 96, 'relu', 2., True, False, False),
+        ('invertedbottleneck', 5, 1, 96, 'relu', 4., True, False, False),
+        ('invertedbottleneck', 5, 1, 96, 'relu', 4., True, False, True),
+        ('convbn', 1, 1, 448, 'relu', None, True, False, True),
+        ('gpooling', None, None, None, None, None, None, None, False),
+        # Remove bias and add batch norm for the last layer to support QAT
+        # and achieve slightly better accuracy.
+        ('convbn', 1, 1, 1280, 'relu', None, True, False, False),
+    ]
+}
+
+# Similar to MobileNetMultiMax and used for segmentation task.
+# Reduced the filters by a factor of 2 in the last block.
+MNMultiMAX_SEG_BLOCK_SPECS = {
+    'spec_name':
+        'MobileNetMultiMAXSeg',
+    'block_spec_schema': [
+        'block_fn', 'kernel_size', 'strides', 'filters', 'activation',
+        'expand_ratio', 'use_normalization', 'use_bias', 'is_output'
+    ],
+    'block_specs': [
+        ('convbn', 3, 2, 32, 'relu', None, True, False, False),
+        ('invertedbottleneck', 3, 2, 32, 'relu', 3., True, False, True),
+        ('invertedbottleneck', 5, 2, 64, 'relu', 6., True, False, False),
+        ('invertedbottleneck', 3, 1, 64, 'relu', 2., True, False, False),
+        ('invertedbottleneck', 3, 1, 64, 'relu', 2., True, False, True),
+        ('invertedbottleneck', 5, 2, 128, 'relu', 6., True, False, False),
+        ('invertedbottleneck', 3, 1, 128, 'relu', 4., True, False, False),
+        ('invertedbottleneck', 3, 1, 128, 'relu', 3., True, False, False),
+        ('invertedbottleneck', 3, 1, 128, 'relu', 3., True, False, False),
+        ('invertedbottleneck', 3, 1, 128, 'relu', 6., True, False, False),
+        ('invertedbottleneck', 3, 1, 128, 'relu', 3., True, False, True),
+        ('invertedbottleneck', 3, 2, 160, 'relu', 6., True, False, False),
+        ('invertedbottleneck', 5, 1, 96, 'relu', 2., True, False, False),
+        ('invertedbottleneck', 3, 1, 96, 'relu', 4., True, False, False),
+        ('invertedbottleneck', 5, 1, 96, 'relu', 320.0 / 96, True, False, True),
+        ('convbn', 1, 1, 448, 'relu', None, True, False, True),
+        ('gpooling', None, None, None, None, None, None, None, False),
+        # Remove bias and add batch norm for the last layer to support QAT
+        # and achieve slightly better accuracy.
+        ('convbn', 1, 1, 1280, 'relu', None, True, False, False),
+    ]
+}
+
+# A smaller MNV3Small, with reduced filters for the last few layers
+MNV3SmallReducedFilters = {
+    'spec_name':
+        'MobilenetV3SmallReducedFilters',
+    'block_spec_schema': [
+        'block_fn', 'kernel_size', 'strides', 'filters', 'activation',
+        'se_ratio', 'expand_ratio', 'use_normalization', 'use_bias', 'is_output'
+    ],
+    'block_specs': [
+        ('convbn', 3, 2, 16, 'hard_swish', None, None, True, False, False),
+        ('invertedbottleneck', 3, 2, 16, 'relu', 0.25, 1, None, False, True),
+        ('invertedbottleneck', 3, 2, 24, 'relu', None, 72. / 16, None, False,
+         False),
+        ('invertedbottleneck', 3, 1, 24, 'relu', None, 88. / 24, None, False,
+         True),
+        ('invertedbottleneck', 5, 2, 40, 'hard_swish', 0.25, 4, None, False,
+         False),
+        ('invertedbottleneck', 5, 1, 40, 'hard_swish', 0.25, 6, None, False,
+         False),
+        ('invertedbottleneck', 5, 1, 40, 'hard_swish', 0.25, 6, None, False,
+         False),
+        ('invertedbottleneck', 5, 1, 48, 'hard_swish', 0.25, 3, None, False,
+         False),
+        ('invertedbottleneck', 5, 1, 48, 'hard_swish', 0.25, 3, None, False,
+         True),
+        # Layers below are different from MobileNetV3Small and have
+        # half as many filters
+        ('invertedbottleneck', 5, 2, 48, 'hard_swish', 0.25, 3, None, False,
+         False),
+        ('invertedbottleneck', 5, 1, 48, 'hard_swish', 0.25, 6, None, False,
+         False),
+        ('invertedbottleneck', 5, 1, 48, 'hard_swish', 0.25, 6, None, False,
+         True),
+        ('convbn', 1, 1, 288, 'hard_swish', None, None, True, False, False),
+        ('gpooling', None, None, None, None, None, None, None, None, False),
+        ('convbn', 1, 1, 1024, 'hard_swish', None, None, False, True, False),
+    ]
+}
+
 SUPPORTED_SPECS_MAP = {
     'MobileNetV1': MNV1_BLOCK_SPECS,
     'MobileNetV2': MNV2_BLOCK_SPECS,
@@ -410,6 +532,9 @@ SUPPORTED_SPECS_MAP = {
     'MobileNetV3EdgeTPU': MNV3EdgeTPU_BLOCK_SPECS,
     'MobileNetMultiMAX': MNMultiMAX_BLOCK_SPECS,
     'MobileNetMultiAVG': MNMultiAVG_BLOCK_SPECS,
+    'MobileNetMultiAVGSeg': MNMultiAVG_SEG_BLOCK_SPECS,
+    'MobileNetMultiMAXSeg': MNMultiMAX_SEG_BLOCK_SPECS,
+    'MobileNetV3SmallReducedFilters': MNV3SmallReducedFilters,
 }
 
 
@@ -517,13 +642,14 @@ class MobileNet(tf.keras.Model):
       use_sync_bn: bool = False,
       # finegrain is not used in MobileNetV1.
       finegrain_classification_mode: bool = True,
+      output_intermediate_endpoints: bool = False,
       **kwargs):
     """Initializes a MobileNet model.
 
     Args:
       model_id: A `str` of MobileNet version. The supported values are
         `MobileNetV1`, `MobileNetV2`, `MobileNetV3Large`, `MobileNetV3Small`,
-        and `MobileNetV3EdgeTPU`.
+        `MobileNetV3EdgeTPU`, `MobileNetMultiMAX` and `MobileNetMultiAVG`.
       filter_size_scale: A `float` of multiplier for the filters (number of
         channels) for all convolution ops. The value must be greater than zero.
         Typical usage will be to set this value in (0, 1) to reduce the number
@@ -554,6 +680,8 @@ class MobileNet(tf.keras.Model):
       finegrain_classification_mode: If True, the model will keep the last layer
         large even for small multipliers, following
         https://arxiv.org/abs/1801.04381.
+      output_intermediate_endpoints: A `bool` of whether or not output the
+        intermediate endpoints.
       **kwargs: Additional keyword arguments to be passed.
     """
     if model_id not in SUPPORTED_SPECS_MAP:
@@ -586,6 +714,7 @@ class MobileNet(tf.keras.Model):
     self._norm_momentum = norm_momentum
     self._norm_epsilon = norm_epsilon
     self._finegrain_classification_mode = finegrain_classification_mode
+    self._output_intermediate_endpoints = output_intermediate_endpoints
 
     inputs = tf.keras.Input(shape=input_specs.shape[1:])
 
@@ -658,6 +787,7 @@ class MobileNet(tf.keras.Model):
         layer_rate = 1
         current_stride *= block_def.strides
 
+      intermediate_endpoints = {}
       if block_def.block_fn == 'convbn':
 
         net = Conv2DBNBlock(
@@ -679,7 +809,7 @@ class MobileNet(tf.keras.Model):
         net = nn_blocks.DepthwiseSeparableConvBlock(
             filters=block_def.filters,
             kernel_size=block_def.kernel_size,
-            strides=block_def.strides,
+            strides=layer_stride,
             activation=block_def.activation,
             dilation_rate=layer_rate,
             regularize_depthwise=self._regularize_depthwise,
@@ -701,7 +831,7 @@ class MobileNet(tf.keras.Model):
           #   any 1x1 convolution).
           use_rate = layer_rate
         in_filters = net.shape.as_list()[-1]
-        net = nn_blocks.InvertedBottleneckBlock(
+        block = nn_blocks.InvertedBottleneckBlock(
             in_filters=in_filters,
             out_filters=block_def.filters,
             kernel_size=block_def.kernel_size,
@@ -722,8 +852,13 @@ class MobileNet(tf.keras.Model):
             norm_momentum=self._norm_momentum,
             norm_epsilon=self._norm_epsilon,
             stochastic_depth_drop_rate=self._stochastic_depth_drop_rate,
-            divisible_by=self._get_divisible_by()
-        )(net)
+            divisible_by=self._get_divisible_by(),
+            output_intermediate_endpoints=self._output_intermediate_endpoints,
+        )
+        if self._output_intermediate_endpoints:
+          net, intermediate_endpoints = block(net)
+        else:
+          net = block(net)
 
       elif block_def.block_fn == 'gpooling':
         net = layers.GlobalAveragePooling2D()(net)
@@ -737,8 +872,13 @@ class MobileNet(tf.keras.Model):
 
       if block_def.is_output:
         endpoints[str(endpoint_level)] = net
-        endpoint_level += 1
+        for key, tensor in intermediate_endpoints.items():
+          endpoints[str(endpoint_level) + '/' + key] = tensor
+        if current_stride != self._output_stride:
+          endpoint_level += 1
 
+    if str(endpoint_level) in endpoints:
+      endpoint_level += 1
     return net, endpoints, endpoint_level
 
   def get_config(self):
@@ -788,6 +928,8 @@ def build_mobilenet(
       filter_size_scale=backbone_cfg.filter_size_scale,
       input_specs=input_specs,
       stochastic_depth_drop_rate=backbone_cfg.stochastic_depth_drop_rate,
+      output_stride=backbone_cfg.output_stride,
+      output_intermediate_endpoints=backbone_cfg.output_intermediate_endpoints,
       use_sync_bn=norm_activation_config.use_sync_bn,
       norm_momentum=norm_activation_config.norm_momentum,
       norm_epsilon=norm_activation_config.norm_epsilon,

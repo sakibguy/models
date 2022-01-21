@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@ flags.DEFINE_integer(
     'batch_size', None, 'The batch size.')
 flags.DEFINE_string(
     'input_type', 'image_tensor',
-    'One of `image_tensor`, `image_bytes`, `tf_example`.')
+    'One of `image_tensor`, `image_bytes`, `tf_example` and `tflite`.')
 flags.DEFINE_string(
     'input_image_size', '224,224',
     'The comma-separated string of two integers representing the height,width '

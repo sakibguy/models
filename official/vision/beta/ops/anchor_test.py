@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -155,7 +155,7 @@ class AnchorTest(parameterized.TestCase, tf.test.TestCase):
         att_targets[attribute_name][k] = v.numpy()
       anchor_locations = np.vstack(
           np.where(
-              att_targets[attribute_name][str(min_level)] > -1)).transpose()
+              att_targets[attribute_name][str(min_level)] > 0.0)).transpose()
       self.assertAllClose(expected_anchor_locations, anchor_locations)
     else:
       self.assertEmpty(att_targets)

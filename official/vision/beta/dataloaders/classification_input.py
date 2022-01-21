@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -69,6 +69,8 @@ class Parser(parser.Parser):
                decode_jpeg_only: bool = True,
                aug_rand_hflip: bool = True,
                aug_type: Optional[common.Augmentation] = None,
+               color_jitter: float = 0.,
+               random_erasing: Optional[common.RandomErasing] = None,
                is_multilabel: bool = False,
                dtype: str = 'float32'):
     """Initializes parameters for parsing annotations in the dataset.
@@ -85,6 +87,11 @@ class Parser(parser.Parser):
         horizontal flip.
       aug_type: An optional Augmentation object to choose from AutoAugment and
         RandAugment.
+      color_jitter: Magnitude of color jitter. If > 0, the value is used to
+        generate random scale factor for brightness, contrast and saturation.
+        See `preprocess_ops.color_jitter` for more details.
+      random_erasing: if not None, augment input image by random erasing. See
+        `augment.RandomErasing` for more details.
       is_multilabel: A `bool`, whether or not each example has multiple labels.
       dtype: `str`, cast output image in dtype. It can be 'float32', 'float16',
         or 'bfloat16'.
@@ -113,13 +120,27 @@ class Parser(parser.Parser):
             magnitude=aug_type.randaug.magnitude,
             cutout_const=aug_type.randaug.cutout_const,
             translate_const=aug_type.randaug.translate_const,
-            prob_to_apply=aug_type.randaug.prob_to_apply)
+            prob_to_apply=aug_type.randaug.prob_to_apply,
+            exclude_ops=aug_type.randaug.exclude_ops)
       else:
         raise ValueError('Augmentation policy {} not supported.'.format(
             aug_type.type))
     else:
       self._augmenter = None
     self._label_field_key = label_field_key
+    self._color_jitter = color_jitter
+    if random_erasing:
+      self._random_erasing = augment.RandomErasing(
+          probability=random_erasing.probability,
+          min_area=random_erasing.min_area,
+          max_area=random_erasing.max_area,
+          min_aspect=random_erasing.min_aspect,
+          max_aspect=random_erasing.max_aspect,
+          min_count=random_erasing.min_count,
+          max_count=random_erasing.max_count,
+          trials=random_erasing.trials)
+    else:
+      self._random_erasing = None
     self._is_multilabel = is_multilabel
     self._decode_jpeg_only = decode_jpeg_only
 
@@ -173,6 +194,12 @@ class Parser(parser.Parser):
     if self._aug_rand_hflip:
       image = tf.image.random_flip_left_right(image)
 
+    # Color jitter.
+    if self._color_jitter > 0:
+      image = preprocess_ops.color_jitter(image, self._color_jitter,
+                                          self._color_jitter,
+                                          self._color_jitter)
+
     # Resizes image.
     image = tf.image.resize(
         image, self._output_size, method=tf.image.ResizeMethod.BILINEAR)
@@ -186,6 +213,10 @@ class Parser(parser.Parser):
     image = preprocess_ops.normalize_image(image,
                                            offset=MEAN_RGB,
                                            scale=STDDEV_RGB)
+
+    # Random erasing after the image has been normalized
+    if self._random_erasing is not None:
+      image = self._random_erasing.distort(image)
 
     # Convert image to self._dtype.
     image = tf.image.convert_image_dtype(image, self._dtype)
@@ -221,4 +252,22 @@ class Parser(parser.Parser):
     # Convert image to self._dtype.
     image = tf.image.convert_image_dtype(image, self._dtype)
 
+    return image
+
+  @classmethod
+  def inference_fn(cls,
+                   image: tf.Tensor,
+                   input_image_size: List[int],
+                   num_channels: int = 3) -> tf.Tensor:
+    """Builds image model inputs for serving."""
+
+    image = tf.cast(image, dtype=tf.float32)
+    image = preprocess_ops.center_crop_image(image)
+    image = tf.image.resize(
+        image, input_image_size, method=tf.image.ResizeMethod.BILINEAR)
+
+    # Normalizes image with mean and std pixel values.
+    image = preprocess_ops.normalize_image(
+        image, offset=MEAN_RGB, scale=STDDEV_RGB)
+    image.set_shape(input_image_size + [num_channels])
     return image

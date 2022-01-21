@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,11 +15,12 @@
 """Preprocessing ops."""
 
 import math
+from typing import Optional, Tuple, Union
 from six.moves import range
 import tensorflow as tf
 
+from official.vision.beta.ops import augment
 from official.vision.beta.ops import box_ops
-
 
 CENTER_CROP_FRACTION = 0.875
 
@@ -302,6 +303,86 @@ def resize_and_crop_image_v2(image,
     return output_image, image_info
 
 
+def resize_image(
+    image: tf.Tensor,
+    size: Union[Tuple[int, int], int],
+    max_size: Optional[int] = None,
+    method: tf.image.ResizeMethod = tf.image.ResizeMethod.BILINEAR):
+  """Resize image with size and max_size.
+
+  Args:
+    image: the image to be resized.
+    size: if list to tuple, resize to it. If scalar, we keep the same
+      aspect ratio and resize the short side to the value.
+    max_size: only used when size is a scalar. When the larger side is larger
+      than max_size after resized with size we used max_size to keep the aspect
+      ratio instead.
+    method: the method argument passed to tf.image.resize.
+
+  Returns:
+    the resized image and image_info to be used for downstream processing.
+    image_info: a 2D `Tensor` that encodes the information of the image and the
+      applied preprocessing. It is in the format of
+      [[original_height, original_width], [resized_height, resized_width],
+      [y_scale, x_scale], [0, 0]], where [resized_height, resized_width]
+      is the actual scaled image size, and [y_scale, x_scale] is the
+      scaling factor, which is the ratio of
+      scaled dimension / original dimension.
+  """
+
+  def get_size_with_aspect_ratio(image_size, size, max_size=None):
+    h = image_size[0]
+    w = image_size[1]
+    if max_size is not None:
+      min_original_size = tf.cast(tf.math.minimum(w, h), dtype=tf.float32)
+      max_original_size = tf.cast(tf.math.maximum(w, h), dtype=tf.float32)
+      if max_original_size / min_original_size * size > max_size:
+        size = tf.cast(
+            tf.math.floor(max_size * min_original_size / max_original_size),
+            dtype=tf.int32)
+      else:
+        size = tf.cast(size, tf.int32)
+
+    else:
+      size = tf.cast(size, tf.int32)
+    if (w <= h and w == size) or (h <= w and h == size):
+      return tf.stack([h, w])
+
+    if w < h:
+      ow = size
+      oh = tf.cast(
+          (tf.cast(size, dtype=tf.float32) * tf.cast(h, dtype=tf.float32) /
+           tf.cast(w, dtype=tf.float32)),
+          dtype=tf.int32)
+    else:
+      oh = size
+      ow = tf.cast(
+          (tf.cast(size, dtype=tf.float32) * tf.cast(w, dtype=tf.float32) /
+           tf.cast(h, dtype=tf.float32)),
+          dtype=tf.int32)
+
+    return tf.stack([oh, ow])
+
+  def get_size(image_size, size, max_size=None):
+    if isinstance(size, (list, tuple)):
+      return size[::-1]
+    else:
+      return get_size_with_aspect_ratio(image_size, size, max_size)
+
+  orignal_size = tf.shape(image)[0:2]
+  size = get_size(orignal_size, size, max_size)
+  rescaled_image = tf.image.resize(
+      image, tf.cast(size, tf.int32), method=method)
+  image_scale = size / orignal_size
+  image_info = tf.stack([
+      tf.cast(orignal_size, dtype=tf.float32),
+      tf.cast(size, dtype=tf.float32),
+      tf.cast(image_scale, tf.float32),
+      tf.constant([0.0, 0.0], dtype=tf.float32)
+  ])
+  return rescaled_image, image_info
+
+
 def center_crop_image(image):
   """Center crop a square shape slice from the input image.
 
@@ -555,6 +636,107 @@ def random_horizontal_flip(image, normalized_boxes=None, masks=None, seed=1):
           lambda: masks)
 
     return image, normalized_boxes, masks
+
+
+def color_jitter(image: tf.Tensor,
+                 brightness: Optional[float] = 0.,
+                 contrast: Optional[float] = 0.,
+                 saturation: Optional[float] = 0.,
+                 seed: Optional[int] = None) -> tf.Tensor:
+  """Applies color jitter to an image, similarly to torchvision`s ColorJitter.
+
+  Args:
+    image (tf.Tensor): Of shape [height, width, 3] and type uint8.
+    brightness (float, optional): Magnitude for brightness jitter. Defaults to
+      0.
+    contrast (float, optional): Magnitude for contrast jitter. Defaults to 0.
+    saturation (float, optional): Magnitude for saturation jitter. Defaults to
+      0.
+    seed (int, optional): Random seed. Defaults to None.
+
+  Returns:
+    tf.Tensor: The augmented `image` of type uint8.
+  """
+  image = tf.cast(image, dtype=tf.uint8)
+  image = random_brightness(image, brightness, seed=seed)
+  image = random_contrast(image, contrast, seed=seed)
+  image = random_saturation(image, saturation, seed=seed)
+  return image
+
+
+def random_brightness(image: tf.Tensor,
+                      brightness: float = 0.,
+                      seed: Optional[int] = None) -> tf.Tensor:
+  """Jitters brightness of an image.
+
+  Args:
+      image (tf.Tensor): Of shape [height, width, 3] and type uint8.
+      brightness (float, optional): Magnitude for brightness jitter. Defaults to
+        0.
+      seed (int, optional): Random seed. Defaults to None.
+
+  Returns:
+      tf.Tensor: The augmented `image` of type uint8.
+  """
+  assert brightness >= 0, '`brightness` must be positive'
+  brightness = tf.random.uniform([],
+                                 max(0, 1 - brightness),
+                                 1 + brightness,
+                                 seed=seed,
+                                 dtype=tf.float32)
+  return augment.brightness(image, brightness)
+
+
+def random_contrast(image: tf.Tensor,
+                    contrast: float = 0.,
+                    seed: Optional[int] = None) -> tf.Tensor:
+  """Jitters contrast of an image, similarly to torchvision`s ColorJitter.
+
+  Args:
+      image (tf.Tensor): Of shape [height, width, 3] and type uint8.
+      contrast (float, optional): Magnitude for contrast jitter. Defaults to 0.
+      seed (int, optional): Random seed. Defaults to None.
+
+  Returns:
+      tf.Tensor: The augmented `image` of type uint8.
+  """
+  assert contrast >= 0, '`contrast` must be positive'
+  contrast = tf.random.uniform([],
+                               max(0, 1 - contrast),
+                               1 + contrast,
+                               seed=seed,
+                               dtype=tf.float32)
+  return augment.contrast(image, contrast)
+
+
+def random_saturation(image: tf.Tensor,
+                      saturation: float = 0.,
+                      seed: Optional[int] = None) -> tf.Tensor:
+  """Jitters saturation of an image, similarly to torchvision`s ColorJitter.
+
+  Args:
+      image (tf.Tensor): Of shape [height, width, 3] and type uint8.
+      saturation (float, optional): Magnitude for saturation jitter. Defaults to
+        0.
+      seed (int, optional): Random seed. Defaults to None.
+
+  Returns:
+      tf.Tensor: The augmented `image` of type uint8.
+  """
+  assert saturation >= 0, '`saturation` must be positive'
+  saturation = tf.random.uniform([],
+                                 max(0, 1 - saturation),
+                                 1 + saturation,
+                                 seed=seed,
+                                 dtype=tf.float32)
+  return _saturation(image, saturation)
+
+
+def _saturation(image: tf.Tensor,
+                saturation: Optional[float] = 0.) -> tf.Tensor:
+  return augment.blend(
+      tf.repeat(tf.image.rgb_to_grayscale(image), 3, axis=-1), image,
+      saturation)
 
 
 def random_crop_image_with_boxes_and_labels(img, boxes, labels, min_scale,

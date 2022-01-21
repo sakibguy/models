@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -60,6 +60,7 @@ SPINENET_BLOCK_SPECS = [
     (5, 'bottleneck', (7, 12), True),
     (7, 'bottleneck', (5, 14), True),
     (6, 'bottleneck', (12, 14), True),
+    (2, 'bottleneck', (2, 13), True),
 ]
 
 SCALING_MAP = {
@@ -84,6 +85,13 @@ SCALING_MAP = {
     '143': {
         'endpoints_num_filters': 256,
         'filter_size_scale': 1.0,
+        'resample_alpha': 1.0,
+        'block_repeats': 3,
+    },
+    # SpineNet-143 with 1.3x filter_size_scale.
+    '143L': {
+        'endpoints_num_filters': 256,
+        'filter_size_scale': 1.3,
         'resample_alpha': 1.0,
         'block_repeats': 3,
     },

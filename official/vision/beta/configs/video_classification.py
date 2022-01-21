@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,8 +14,8 @@
 
 # Lint as: python3
 """Video classification configuration definition."""
-from typing import Optional, Tuple
 import dataclasses
+from typing import Optional, Tuple
 from official.core import config_definitions as cfg
 from official.core import exp_factory
 from official.modeling import hyperparams
@@ -121,6 +121,7 @@ class VideoClassificationModel(hyperparams.Config):
       use_sync_bn=False)
   dropout_rate: float = 0.2
   aggregate_endpoints: bool = False
+  require_endpoints: Optional[Tuple[str, ...]] = None
 
 
 @dataclasses.dataclass
@@ -146,6 +147,9 @@ class VideoClassificationTask(cfg.TaskConfig):
   metrics: Metrics = Metrics()
   init_checkpoint: Optional[str] = None
   init_checkpoint_modules: str = 'all'  # all or backbone
+  # Spatial Partitioning fields.
+  train_input_partition_dims: Optional[Tuple[int, ...]] = None
+  eval_input_partition_dims: Optional[Tuple[int, ...]] = None
 
 
 def add_trainer(experiment: cfg.ExperimentConfig,

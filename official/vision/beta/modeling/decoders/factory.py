@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -106,7 +106,7 @@ def build_decoder(
     input_specs: Mapping[str, tf.TensorShape],
     model_config: hyperparams.Config,
     l2_regularizer: tf.keras.regularizers.Regularizer = None,
-    **kwargs) -> Union[None, tf.keras.Model, tf.keras.layers.Layer]:
+    **kwargs) -> Union[None, tf.keras.Model, tf.keras.layers.Layer]:  # pytype: disable=annotation-type-mismatch  # typed-keras
   """Builds decoder from a config.
 
   A decoder can be a keras.Model, a keras.layers.Layer, or None. If it is not

@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -98,5 +98,6 @@ def build_video_classification_model(
       input_specs=input_specs_dict,
       dropout_rate=model_config.dropout_rate,
       aggregate_endpoints=model_config.aggregate_endpoints,
-      kernel_regularizer=l2_regularizer)
+      kernel_regularizer=l2_regularizer,
+      require_endpoints=model_config.require_endpoints)
   return model

@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -331,7 +331,7 @@ class Parser(parser.Parser):
         'source_id': data['source_id'],
         'height': data['height'],
         'width': data['width'],
-        'num_detections': tf.shape(data['groundtruth_classes']),
+        'num_detections': tf.shape(data['groundtruth_classes'])[0],
         'boxes': boxes,
         'classes': data['groundtruth_classes'],
         'areas': data['groundtruth_area'],

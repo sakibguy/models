@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -131,8 +131,9 @@ class DetectionGenerator(hyperparams.Config):
   pre_nms_score_threshold: float = 0.05
   nms_iou_threshold: float = 0.5
   max_num_detections: int = 100
-  use_batched_nms: bool = False
+  nms_version: str = 'v2'  # `v2`, `v1`, `batched`
   use_cpu_nms: bool = False
+  soft_nms_sigma: Optional[float] = None  # Only works when nms_version='v1'.
 
 
 @dataclasses.dataclass
@@ -184,6 +185,7 @@ class MaskRCNN(hyperparams.Config):
 
 @dataclasses.dataclass
 class Losses(hyperparams.Config):
+  loss_weight: float = 1.0
   rpn_huber_loss_delta: float = 1. / 9.
   frcnn_huber_loss_delta: float = 1.
   l2_weight_decay: float = 0.0
@@ -208,6 +210,10 @@ class MaskRCNNTask(cfg.TaskConfig):
   per_category_metrics: bool = False
   # If set, we only use masks for the specified class IDs.
   allowed_mask_class_ids: Optional[List[int]] = None
+  # If set, the COCO metrics will be computed.
+  use_coco_metrics: bool = True
+  # If set, the Waymo Open Dataset evaluator would be used.
+  use_wod_metrics: bool = False
 
 
 COCO_INPUT_PATH_BASE = 'coco'
@@ -292,7 +298,8 @@ def maskrcnn_resnetfpn_coco() -> cfg.ExperimentConfig:
   eval_batch_size = 8
 
   config = cfg.ExperimentConfig(
-      runtime=cfg.RuntimeConfig(mixed_precision_dtype='bfloat16'),
+      runtime=cfg.RuntimeConfig(
+          mixed_precision_dtype='bfloat16', enable_xla=True),
       task=MaskRCNNTask(
           init_checkpoint='gs://cloud-tpu-checkpoints/vision-2.0/resnet50_imagenet/ckpt-28080',
           init_checkpoint_modules='backbone',

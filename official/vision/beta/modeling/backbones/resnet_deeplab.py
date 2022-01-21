@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -343,7 +343,7 @@ def build_dilated_resnet(
     input_specs: tf.keras.layers.InputSpec,
     backbone_config: hyperparams.Config,
     norm_activation_config: hyperparams.Config,
-    l2_regularizer: tf.keras.regularizers.Regularizer = None) -> tf.keras.Model:
+    l2_regularizer: tf.keras.regularizers.Regularizer = None) -> tf.keras.Model:  # pytype: disable=annotation-type-mismatch  # typed-keras
   """Builds ResNet backbone from a config."""
   backbone_type = backbone_config.type
   backbone_cfg = backbone_config.get()

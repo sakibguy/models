@@ -1,4 +1,4 @@
-# Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2022 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -255,6 +255,11 @@ class VideoClassificationTask(base_task.Task):
       A dictionary of logs.
     """
     features, labels = inputs
+    input_partition_dims = self.task_config.train_input_partition_dims
+    if input_partition_dims:
+      strategy = tf.distribute.get_strategy()
+      features['image'] = strategy.experimental_split_to_logical_devices(
+          features['image'], input_partition_dims)
 
     num_replicas = tf.distribute.get_strategy().num_replicas_in_sync
     with tf.GradientTape() as tape:
@@ -314,6 +319,11 @@ class VideoClassificationTask(base_task.Task):
       A dictionary of logs.
     """
     features, labels = inputs
+    input_partition_dims = self.task_config.eval_input_partition_dims
+    if input_partition_dims:
+      strategy = tf.distribute.get_strategy()
+      features['image'] = strategy.experimental_split_to_logical_devices(
+          features['image'], input_partition_dims)
 
     outputs = self.inference_step(features, model)
     outputs = tf.nest.map_structure(lambda x: tf.cast(x, tf.float32), outputs)
